@@ -21,7 +21,6 @@ var (
 const (
 	OutputFileName                  = "gompare-results.txt"
 	HeaderFormatString              = "%s\n---------------------------\n"
-	RowFormatString                 = "%-9.9t%s\n"
 	MissingColumnHeaderFormatString = "\n%s\n---------------------\n"
 )
 
