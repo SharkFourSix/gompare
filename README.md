@@ -58,4 +58,4 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 [0.0.2]: https://github.com/SharkFourSix/gompare/tree/v0.0.2
 
-[0.0.3]: https://github.com/SharkFourSix/gompare/tree/v0.0.2
+[0.0.3]: https://github.com/SharkFourSix/gompare/tree/v0.0.3
