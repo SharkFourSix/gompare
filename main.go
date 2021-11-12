@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/csv"
-	_ "encoding/csv"
 	"errors"
 	"fmt"
 	"github.com/devfacet/gocmd"
@@ -14,14 +13,16 @@ import (
 
 var (
 	name       = "gompare"
-	version    = "0.0.1"
+	version    = "0.0.2"
 	repository = "https://github.com/SharkFourSix/gompare"
 )
 
 const (
-	OutputFileName                  = "gompare-results.txt"
-	HeaderFormatString              = "%s\n---------------------------\n"
-	MissingColumnHeaderFormatString = "\n%s\n---------------------\n"
+	OutputFileName            = "gompare-results.txt"
+	ColumnHeaderFormatString  = "\n%s\n---------------------\n"
+	StatisticsHeader          = "\nStatistics\n------------------------\n"
+	StatisticsNumberRowFormat = "%-20s%d\n"
+	StatisticsTextRowFormat   = "%-20s%s\n"
 )
 
 func fileExists(filename string) bool {
@@ -59,24 +60,47 @@ func ReadCsvColumns(filename string) (columns []string, err error) {
 	return columns, err
 }
 
+func StringArrayContains(needle string, array []string) bool {
+	for _, str := range array {
+		if strings.EqualFold(needle, str) {
+			return true
+		}
+	}
+	return false
+}
+
+func PrintColumns(title string, columns []string, writer *bufio.Writer) {
+	_, _ = writer.WriteString(fmt.Sprintf(ColumnHeaderFormatString, title))
+	if len(columns) == 0 {
+		_, _ = writer.WriteString("N/A")
+	} else {
+		_, _ = writer.WriteString(strings.Join(columns, "\n"))
+	}
+	_, _ = writer.WriteString("\n")
+}
+
 func main() {
 	flags := struct {
-		Version    bool   `short:"v" long:"version" description:"Display version"`
-		Help       bool   `short:"h" long:"help" description:"Show help"`
-		Template   string `short:"t" long:"template-file" description:"Template file containing comma separated column names"`
-		InputFile  string `short:"i" long:"input-file" description:"Target CSV file to be inspected"`
-		OutputFile bool   `short:"o" long:"output-to-file" description:"Prints results to file instead of standard output"`
+		Version       bool   `short:"v" long:"version" description:"Display version"`
+		Help          bool   `short:"h" long:"help" description:"Show help"`
+		Template      string `short:"t" long:"template-file" description:"Template file containing comma separated column names"`
+		InputFile     string `short:"i" long:"input-file" description:"Target CSV file to be inspected"`
+		OutputFile    bool   `short:"o" long:"output-to-file" description:"Prints results to file instead of standard output"`
+		ShowUnmatched bool   `short:"u" long:"show-unmatched-cols" description:"Show unmatched columns"`
 	}{}
 
 	var (
-		templateFile    string
-		inputFile       string
-		templateColumns []string
-		targetColumns   []string
-		writer          *bufio.Writer
-		writeToFile     = false
-		outputFile      *os.File
-		missingColumns  []string
+		templateFile      string
+		inputFile         string
+		templateColumns   []string
+		targetColumns     []string
+		writer            *bufio.Writer
+		writeToFile       = false
+		outputFile        *os.File
+		missingColumns    []string
+		unmatchedColumns  []string
+		matchedColumns    []string
+		showUnmatchedCols = false
 	)
 	_, _ = gocmd.HandleFlag("Help", func(cmd *gocmd.Cmd, args []string) error {
 		cmd.PrintUsage()
@@ -101,6 +125,11 @@ func main() {
 
 	_, _ = gocmd.HandleFlag("OutputFile", func(cmd *gocmd.Cmd, args []string) error {
 		writeToFile = true
+		return nil
+	})
+
+	_, _ = gocmd.HandleFlag("ShowUnmatched", func(cmd *gocmd.Cmd, args []string) error {
+		showUnmatchedCols = true
 		return nil
 	})
 
@@ -146,41 +175,51 @@ func main() {
 		writer = bufio.NewWriter(os.Stdout)
 	}
 
-	targetColumnCount := len(targetColumns)
-	templateColumnCount := len(templateColumns)
-
 	writeLine := func(format string, a ...interface{}) {
 		_, _ = writer.WriteString(fmt.Sprintf(format, a...))
 	}
 
-	writeLine(HeaderFormatString, "Matching Columns")
-
 	for _, templateColumn := range templateColumns {
-		inTargetCsv := false
-		for _, targetColumn := range targetColumns {
-			inTargetCsv = strings.EqualFold(strings.ToLower(templateColumn), strings.ToLower(targetColumn))
-			if inTargetCsv {
-				writeLine("%s\n", templateColumn)
-				break
-			}
-		}
-		if !inTargetCsv {
+		if StringArrayContains(templateColumn, targetColumns) {
+			matchedColumns = append(matchedColumns, templateColumn)
+		} else {
 			missingColumns = append(missingColumns, templateColumn)
 		}
 	}
 
-	writeLine(MissingColumnHeaderFormatString, "Missing Columns")
-	if len(missingColumns) == 0 {
-		writeLine("N/A\n")
-	} else {
-		for _, column := range missingColumns {
-			writeLine("%s\n", column)
+	// in target and not in template
+	if showUnmatchedCols {
+		for _, column := range targetColumns {
+			if !StringArrayContains(column, templateColumns) {
+				unmatchedColumns = append(unmatchedColumns, column)
+			}
 		}
 	}
 
-	writeLine("\n")
-	writeLine("Column Count (template/target/missing): %d/%d/%d\n",
-		templateColumnCount, targetColumnCount, len(missingColumns))
+	PrintColumns("Matching Columns", matchedColumns, writer)
+	PrintColumns("Missing Columns", missingColumns, writer)
+	if showUnmatchedCols {
+		PrintColumns("Unmatched Columns", unmatchedColumns, writer)
+	}
+
+	targetColumnCount := len(targetColumns)
+	templateColumnCount := len(templateColumns)
+	matchedColumnCount := len(matchedColumns)
+	unmatchedColumnCount := len(unmatchedColumns)
+	missingColumnCount := len(missingColumns)
+
+	status := "Invalid"
+	if templateColumnCount == matchedColumnCount {
+		status = "Valid"
+	}
+
+	writeLine(StatisticsHeader)
+	writeLine(StatisticsNumberRowFormat, "Template Columns", templateColumnCount)
+	writeLine(StatisticsNumberRowFormat, "Target Columns", targetColumnCount)
+	writeLine(StatisticsNumberRowFormat, "Missing Columns", missingColumnCount)
+	writeLine(StatisticsNumberRowFormat, "Matching Columns", matchedColumnCount)
+	writeLine(StatisticsNumberRowFormat, "Unmatched Columns", unmatchedColumnCount)
+	writeLine(StatisticsTextRowFormat, "Status", status)
 
 	_ = writer.Flush()
 	if writeToFile {
